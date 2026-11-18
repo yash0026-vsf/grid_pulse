@@ -170,20 +170,20 @@ export default function App() {
           <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10 lg:p-12 z-10">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
               
-              {/* Left 8 columns: Giant Heading "GridPulse" with asterisk */}
-              <div className="lg:col-span-8 flex items-end">
-                <h1 className="text-[26vw] sm:text-[24vw] md:text-[22vw] lg:text-[20vw] xl:text-[19vw] 2xl:text-[20vw] font-medium leading-[0.85] tracking-[-0.07em] text-[#E1E0CC] select-none">
+              {/* Left 7-8 columns: Giant Heading "GridPulse" with asterisk */}
+              <div className="lg:col-span-7 xl:col-span-8 flex items-end overflow-visible">
+                <h1 className="text-[17vw] sm:text-[15vw] md:text-[13vw] lg:text-[9.5vw] xl:text-[9.8vw] 2xl:text-[10vw] font-medium leading-[0.85] tracking-[-0.06em] text-[#E1E0CC] select-none whitespace-nowrap">
                   <WordsPullUp text="GridPulse" showAsterisk={true} />
                 </h1>
               </div>
 
-              {/* Right 4 columns: Description text + CTA button */}
-              <div className="lg:col-span-4 flex flex-col items-start gap-5 pb-2">
+              {/* Right 4-5 columns: Description text + CTA button */}
+              <div className="lg:col-span-5 xl:col-span-4 flex flex-col items-start gap-4 sm:gap-5 pb-2 relative z-20">
                 <motion.p
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                  className="text-primary/70 text-xs sm:text-sm md:text-base leading-[1.2] max-w-sm"
+                  className="text-primary/80 text-xs sm:text-sm md:text-base leading-[1.3] max-w-md"
                 >
                   GridPulse coordinates on site solar arrays, industrial battery storage, and heavy factory machinery in real time to throttle grid spikes and eliminate peak demand penalties.
                 </motion.p>
@@ -193,10 +193,10 @@ export default function App() {
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                  className="bg-primary rounded-full pl-5 pr-1.5 py-1.5 sm:pl-6 sm:pr-2 sm:py-2 text-black font-medium text-sm sm:text-base inline-flex items-center gap-2 group transition-all duration-300 hover:gap-3 cursor-pointer shadow-lg"
+                  className="bg-primary rounded-full pl-5 pr-1.5 py-1.5 sm:pl-6 sm:pr-2 sm:py-2 text-black font-medium text-sm sm:text-base inline-flex items-center gap-2 group transition-all duration-300 hover:gap-3 cursor-pointer shadow-2xl shrink-0"
                 >
                   <span>Launch Live Console</span>
-                  <div className="bg-black rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-110">
+                  <div className="bg-black rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shrink-0">
                     <ArrowRight className="w-4 h-4 text-[#DEDBC8]" />
                   </div>
                 </motion.button>
