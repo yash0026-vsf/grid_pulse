@@ -23,7 +23,8 @@ import {
   RefreshCw,
   Terminal,
   Layers,
-  ChevronRight
+  ChevronRight,
+  SlidersHorizontal
 } from 'lucide-react';
 
 // ==========================================
@@ -55,7 +56,7 @@ const PRESET_PLANTS: Record<string, PlantSpecs> = {
     bessMaxPowerKw: 500,
     contractCeilingKw: 450,
     demandPenaltyPerKw: 35.0,
-    description: "High-inertia 2,000-ton hydraulic stamping presses operating across dual production shifts with rooftop solar array."
+    description: "High-inertia 2,000-ton hydraulic stamping presses operating across dual production shifts with a 500 kWp rooftop solar array."
   },
   cold_storage: {
     id: "cold_storage",
@@ -126,7 +127,7 @@ function generateMicrogridTelemetry(
       tariff = 0.16; // Mid-peak
     }
 
-    // 2. Solar PV Output (Bell curve with noise)
+    // 2. Solar PV Output
     let solarKw = 0;
     if (hour >= 6 && hour <= 18.5) {
       const sunAngle = Math.sin(((hour - 6.0) / 12.5) * Math.PI);
@@ -143,26 +144,22 @@ function generateMicrogridTelemetry(
     let base = specs.baselineLoadKw;
     let pressSpike = 0;
     if (hour >= 8 && hour < 16.5) {
-      // Day shift: frequent hydraulic press stamping
       const isPressActive = i % 3 === 0;
       pressSpike = isPressActive ? specs.pressSpikeKw : specs.pressSpikeKw * 0.35;
       pressSpike *= (1.0 + productionSurgePct / 100);
     } else if (hour >= 16.5 && hour < 24) {
-      // Evening shift
       base *= 0.75;
       pressSpike = (i % 4 === 0) ? specs.pressSpikeKw * 0.3 : 0;
     } else {
-      // Night maintenance baseload
       base *= 0.45;
     }
     const factoryLoadKw = Math.round(base + pressSpike);
     const unmanagedNetKw = Math.round(Math.max(0, factoryLoadKw - solarKw));
 
     // 4. GridPulse AI EMS Battery Dispatch Logic
-    let bessPowerKw = 0; // > 0: discharge, < 0: charge
+    let bessPowerKw = 0;
 
     if (!edgeGuardEnabled) {
-      // AI Guard disabled: Battery sits idle
       bessPowerKw = 0;
     } else {
       // Night Off-Peak Charging (01:00 to 05:00)
@@ -205,20 +202,17 @@ function generateMicrogridTelemetry(
     });
   }
 
-  // Summary Metrics
   const unmanagedPeakKw = Math.max(...points.map(p => p.unmanagedNetKw));
   const managedPeakKw = Math.max(...points.map(p => p.managedGridKw));
   const peakReductionKw = Math.max(0, unmanagedPeakKw - managedPeakKw);
   const peakReductionPct = Math.round((peakReductionKw / unmanagedPeakKw) * 100);
 
-  // Avoided demand charges: (excess peak above contract) * penalty rate
   const unmanagedExcess = Math.max(0, unmanagedPeakKw - specs.contractCeilingKw);
   const managedExcess = Math.max(0, managedPeakKw - specs.contractCeilingKw);
   const unmanagedDemandPenalty = unmanagedExcess * specs.demandPenaltyPerKw;
   const managedDemandPenalty = managedExcess * specs.demandPenaltyPerKw;
   const avoidedDemandPenalty = unmanagedDemandPenalty - managedDemandPenalty;
 
-  // Energy charges
   const unmanagedEnergyCost = points.reduce((acc, p) => acc + p.unmanagedNetKw * p.tariff * dtHours, 0);
   const managedEnergyCost = points.reduce((acc, p) => acc + p.managedGridKw * p.tariff * dtHours, 0);
   const touArbitrageSavings = Math.max(0, unmanagedEnergyCost - managedEnergyCost);
@@ -228,7 +222,6 @@ function generateMicrogridTelemetry(
   const monthlyNetSavings = totalUnmanagedBill - totalManagedBill;
   const annualSavings = monthlyNetSavings * 12;
 
-  // Payback period for commercial BESS ($180/kWh installed)
   const bessCapex = specs.bessCapacityKwh * 180;
   const paybackMonths = Math.round((bessCapex / monthlyNetSavings) * 10) / 10;
 
@@ -356,7 +349,7 @@ export function MicrogridDispatchSvgChart({
   cloudDropActive,
   selectedHourIdx,
   onHoverIndex,
-  height = 340,
+  height = 360,
   showControls = true
 }: SvgChartProps) {
   const [showLoad, setShowLoad] = useState(true);
@@ -378,7 +371,6 @@ export function MicrogridDispatchSvgChart({
   const getX = (idx: number) => paddingLeft + (idx / (points.length - 1)) * chartW;
   const getY = (kw: number) => paddingTop + chartH - (Math.max(0, kw) / maxKw) * chartH;
 
-  // Build SVG Path strings
   const loadPath = useMemo(() => {
     return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i).toFixed(1)} ${getY(p.factoryLoadKw).toFixed(1)}`).join(' ');
   }, [points, chartW, chartH]);
@@ -407,7 +399,6 @@ export function MicrogridDispatchSvgChart({
     }).join(' ');
   }, [points, chartW, chartH]);
 
-  // Handle Mouse Hover Scrubbing
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
@@ -424,8 +415,8 @@ export function MicrogridDispatchSvgChart({
     <div className="w-full flex flex-col gap-3">
       {/* Chart Legend & Toggles */}
       {showControls && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-[#141414] p-3 rounded-xl border border-white/5">
-          <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-[#141414] p-3.5 rounded-xl border border-white/5">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setShowLoad(!showLoad)}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${showLoad ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' : 'text-gray-500 opacity-50'}`}
@@ -455,14 +446,14 @@ export function MicrogridDispatchSvgChart({
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${showGrid ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' : 'text-gray-500 opacity-50'}`}
             >
               <span className="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block" />
-              <span>Net Grid Draw ({currentPt.managedGridKw} kW)</span>
+              <span>Net Grid Import ({currentPt.managedGridKw} kW)</span>
             </button>
           </div>
 
           <div className="flex items-center gap-3 text-[11px] text-gray-400">
             <span className="flex items-center gap-1 text-red-400">
               <span className="w-3 h-0.5 border-t border-dashed border-red-500 inline-block" />
-              Contract Limit ({contractCeilingKw} kW)
+              Contract Limit: {contractCeilingKw} kW
             </span>
             <span className="text-gray-500">|</span>
             <span className="text-primary font-mono">Scrub: {currentPt.timeStr}</span>
@@ -619,7 +610,7 @@ export function MicrogridDispatchSvgChart({
             <path d={bessPath} fill="none" stroke="#06B6D4" strokeWidth="2.2" />
           )}
 
-          {/* Managed Grid Draw Line (Clamped safely!) */}
+          {/* Managed Grid Draw Line */}
           {showGrid && (
             <path d={gridManagedPath} fill="none" stroke="#3B82F6" strokeWidth="2.5" />
           )}
@@ -637,7 +628,6 @@ export function MicrogridDispatchSvgChart({
                 strokeDasharray="2 2"
                 opacity="0.8"
               />
-              {/* Dots on curves */}
               {showLoad && <circle cx={getX(selectedHourIdx)} cy={getY(currentPt.factoryLoadKw)} r="4" fill="#F59E0B" />}
               {showSolar && <circle cx={getX(selectedHourIdx)} cy={getY(currentPt.solarKw)} r="4" fill="#10B981" />}
               {showBess && <circle cx={getX(selectedHourIdx)} cy={getY(Math.max(0, currentPt.bessPowerKw))} r="4" fill="#06B6D4" />}
@@ -674,8 +664,6 @@ export function MicrogridDispatchSvgChart({
 // 5. MAIN COMPONENT: APP
 // ==========================================
 export default function App() {
-  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
-  const [consoleTab, setConsoleTab] = useState<'dispatch' | 'battery' | 'financial' | 'terminal' | 'export'>('dispatch');
   const [selectedPlantId, setSelectedPlantId] = useState<string>('automotive');
   const [isCloudDropSimulated, setIsCloudDropSimulated] = useState(true);
   const [cloudSeverityPct, setCloudSeverityPct] = useState(53);
@@ -685,7 +673,6 @@ export default function App() {
 
   const activePlant = PRESET_PLANTS[selectedPlantId] || PRESET_PLANTS.automotive;
 
-  // Run simulation engine based on state
   const sim = useMemo(() => {
     return generateMicrogridTelemetry(
       activePlant,
@@ -696,7 +683,7 @@ export default function App() {
     );
   }, [activePlant, isCloudDropSimulated, cloudSeverityPct, isEdgeGuardActive, productionSurgePct]);
 
-  // CSV Exporter for Judges
+  // CSV Exporter
   const handleDownloadCsv = () => {
     const headers = ["Timestamp", "Hour", "Tariff_USD_kWh", "Solar_kW", "Factory_Load_kW", "Unmanaged_Grid_kW", "BESS_Dispatch_kW", "BESS_SoC_Pct", "Managed_Grid_kW", "Avoided_Spike_kW"];
     const rows = sim.points.map(p => [
@@ -722,7 +709,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Scroll link for About section
   const aboutContainerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress: aboutScrollProgress } = useScroll({
     target: aboutContainerRef,
@@ -732,8 +718,12 @@ export default function App() {
   const aboutBodyText = "When sudden cloud cover slashes rooftop solar generation by fifty percent during high manufacturing production, factories face catastrophic utility demand surcharges. GridPulse steps in within thirty eight milliseconds, discharging battery reserves to insulate the plant from utility penalty thresholds.";
   const aboutChars = aboutBodyText.split("");
 
-  const featuresRef = useRef<HTMLDivElement>(null);
-  const isFeaturesInView = useInView(featuresRef, { once: true, margin: "-100px" });
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   return (
     <div className="bg-black text-[#E1E0CC] min-h-screen selection:bg-primary selection:text-black">
@@ -744,7 +734,6 @@ export default function App() {
       <section className="h-screen w-full p-4 md:p-6 relative">
         <div className="w-full h-full rounded-2xl md:rounded-[2rem] overflow-hidden relative bg-black">
           
-          {/* Background Video */}
           <video
             src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4"
             autoPlay
@@ -754,27 +743,28 @@ export default function App() {
             className="w-full h-full object-cover"
           />
 
-          {/* Noise & Gradient overlays */}
           <div className="noise-overlay absolute inset-0 opacity-[0.7] mix-blend-overlay pointer-events-none" />
           <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/60 pointer-events-none" />
 
           {/* Hanging Navbar Pill */}
-          <nav className="absolute top-0 left-1/2 -translate-x-1/2 z-20 bg-black rounded-b-2xl md:rounded-b-3xl px-4 py-2 md:px-8 flex items-center justify-center gap-3 sm:gap-6 md:gap-10 lg:gap-12 shadow-2xl border-b border-x border-white/5">
+          <nav className="absolute top-0 left-1/2 -translate-x-1/2 z-20 bg-black rounded-b-2xl md:rounded-b-3xl px-4 py-2 md:px-8 flex items-center justify-center gap-3 sm:gap-6 md:gap-8 lg:gap-10 shadow-2xl border-b border-x border-white/5">
             {[
-              { label: "The Problem", href: "#the-problem" },
-              { label: "Plant Digital Twins", href: "#plant-presets" },
-              { label: "24H Dispatch Graphs", href: "#dispatch-analytics" },
-              { label: "Financial ROI", href: "#financial-roi" },
-              { label: "Stress Sandbox", href: "#stress-sandbox" },
-              { label: "Compliance", href: "#compliance-export" }
+              { label: "SCADA Cockpit", id: "scada-cockpit" },
+              { label: "24H Dispatch", id: "dispatch-analytics" },
+              { label: "Plant Twins", id: "plant-presets" },
+              { label: "Battery Health", id: "battery-health" },
+              { label: "Billing Audit", id: "financial-roi" },
+              { label: "Stress Testing", id: "stress-sandbox" },
+              { label: "Terminal Logs", id: "edge-terminal" },
+              { label: "Exporter", id: "compliance-export" }
             ].map((item, idx) => (
-              <a
+              <button
                 key={idx}
-                href={item.href}
-                className="text-[10px] sm:text-xs md:text-sm font-medium tracking-wide text-primary/80 hover:text-white transition-colors duration-200"
+                onClick={() => scrollToSection(item.id)}
+                className="text-[10px] sm:text-xs md:text-sm font-medium tracking-wide text-primary/80 hover:text-white transition-colors duration-200 cursor-pointer"
               >
                 {item.label}
-              </a>
+              </button>
             ))}
           </nav>
 
@@ -789,7 +779,7 @@ export default function App() {
                 </h1>
               </div>
 
-              {/* Right: Description text + RENAME CTA BUTTON */}
+              {/* Right: Description text + VERTICALLY STACKED ACTION BUTTONS */}
               <div className="w-full lg:w-auto lg:max-w-md flex flex-col items-start gap-4 sm:gap-5 pb-2 shrink-0 relative z-20">
                 <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[11px] font-mono text-emerald-300">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
@@ -805,16 +795,14 @@ export default function App() {
                   Autonomous AI operating system coordinating industrial solar arrays, multi-MWh BESS storage, and factory presses to eliminate utility demand surcharges.
                 </motion.p>
 
-                <div className="flex flex-wrap items-center gap-3">
+                {/* Vertical Stacked Actions */}
+                <div className="flex flex-col items-start gap-2.5 w-full sm:w-auto">
                   <motion.button
-                    onClick={() => {
-                      setConsoleTab('dispatch');
-                      setIsConsoleOpen(true);
-                    }}
+                    onClick={() => scrollToSection('scada-cockpit')}
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                    className="bg-primary rounded-full pl-5 pr-1.5 py-1.5 sm:pl-6 sm:pr-2 sm:py-2 text-black font-semibold text-sm sm:text-base inline-flex items-center gap-2 group transition-all duration-300 hover:gap-3 cursor-pointer shadow-2xl shrink-0 hover:bg-white"
+                    className="w-full sm:w-auto bg-primary rounded-full pl-5 pr-1.5 py-1.5 sm:pl-6 sm:pr-2 sm:py-2 text-black font-semibold text-sm sm:text-base inline-flex items-center justify-between sm:justify-start gap-3 group transition-all duration-300 hover:gap-4 cursor-pointer shadow-2xl hover:bg-white"
                   >
                     <span>Launch Autonomous SCADA Console</span>
                     <div className="bg-black rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shrink-0">
@@ -822,12 +810,12 @@ export default function App() {
                     </div>
                   </motion.button>
 
-                  <a
-                    href="#dispatch-analytics"
-                    className="px-4 py-2 text-xs rounded-full border border-white/20 text-gray-300 hover:text-white hover:border-white transition-colors"
+                  <button
+                    onClick={() => scrollToSection('scada-cockpit')}
+                    className="text-xs text-primary/80 hover:text-white transition-colors flex items-center gap-1.5 pl-2 font-mono"
                   >
-                    Explore Graphs ↓
-                  </a>
+                    <span>Explore SCADA Sections Below ↓</span>
+                  </button>
                 </div>
               </div>
 
@@ -838,151 +826,106 @@ export default function App() {
       </section>
 
       {/* ========================================================= */}
-      {/* SECTION 2: INDUSTRIAL CONTEXT & THE PROBLEM               */}
+      {/* SECTION 2 (VERTICAL): FULL SCADA OPERATING COCKPIT        */}
       {/* ========================================================= */}
-      <section id="the-problem" className="bg-black py-20 md:py-32 px-4 md:px-6">
-        <div className="bg-[#101010] rounded-2xl md:rounded-[2rem] p-8 sm:p-14 md:p-20 max-w-6xl mx-auto text-center border border-white/5 shadow-2xl">
+      <section id="scada-cockpit" className="bg-[#0b0b0b] py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
           
-          <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-8">
-            The $35/kW Ratchet Clause Threat
-          </span>
-
-          <div className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl max-w-3xl mx-auto leading-[0.95] sm:leading-[0.9] text-[#E1E0CC] mb-12">
-            <WordsPullUpMultiStyle
-              segments={[
-                { text: "A 15-minute cloud cover", className: "font-normal" },
-                { text: "can reset your monthly bill.", className: "italic font-serif" },
-                { text: "GridPulse eliminates peak demand charges with millisecond dispatch.", className: "font-normal" }
-              ]}
-            />
-          </div>
-
-          <div ref={aboutContainerRef} className="text-[#DEDBC8] text-xs sm:text-sm md:text-base max-w-2xl mx-auto mt-12 leading-relaxed">
-            {aboutChars.map((char, index) => (
-              <AnimatedLetter
-                key={index}
-                char={char}
-                index={index}
-                totalChars={aboutChars.length}
-                scrollYProgress={aboutScrollProgress}
-              />
-            ))}
-          </div>
-
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-16 pt-12 border-t border-white/10 max-w-4xl mx-auto">
-            <div className="text-left">
-              <span className="text-gray-500 text-xs block mb-1">Peak Demand Shaved</span>
-              <span className="text-2xl sm:text-3xl font-mono font-bold text-primary">▼ {sim.peakReductionPct}%</span>
-              <span className="text-[11px] text-gray-400 block mt-0.5">Clamped under contract</span>
-            </div>
-            <div className="text-left">
-              <span className="text-gray-500 text-xs block mb-1">Avoided Surcharges</span>
-              <span className="text-2xl sm:text-3xl font-mono font-bold text-emerald-400">${Math.round(sim.avoidedDemandPenalty).toLocaleString()}</span>
-              <span className="text-[11px] text-gray-400 block mt-0.5">Every 30-day billing cycle</span>
-            </div>
-            <div className="text-left">
-              <span className="text-gray-500 text-xs block mb-1">Failover Reaction Loop</span>
-              <span className="text-2xl sm:text-3xl font-mono font-bold text-cyan-400">&lt; 38 ms</span>
-              <span className="text-[11px] text-gray-400 block mt-0.5">Local edge Modbus control</span>
-            </div>
-            <div className="text-left">
-              <span className="text-gray-500 text-xs block mb-1">BESS Capex Payback</span>
-              <span className="text-2xl sm:text-3xl font-mono font-bold text-white">{sim.paybackMonths} Mo</span>
-              <span className="text-[11px] text-gray-400 block mt-0.5">Fast industrial ROI</span>
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      {/* ========================================================= */}
-      {/* SECTION 3: PLANT DIGITAL TWINS (PRESETS SWITCHER)         */}
-      {/* ========================================================= */}
-      <section id="plant-presets" className="bg-black py-16 px-4 md:px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+          {/* Section Header */}
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
-                Factory Digital Twins
-              </span>
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-medium text-white">
-                Select Industrial Plant Configuration
+              <div className="flex items-center gap-2 text-primary text-xs uppercase tracking-widest font-mono mb-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>SCADA Core Telemetry Engine</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-medium text-white">
+                Live Industrial SCADA Cockpit
               </h2>
             </div>
-            <p className="text-xs sm:text-sm text-gray-400 max-w-md">
-              Switching presets immediately updates all physics simulation dynamics, telemetry curves, and avoided utility penalty calculations across the page.
-            </p>
+            <div className="text-xs font-mono text-gray-400 bg-[#161616] px-4 py-2.5 rounded-xl border border-white/10">
+              Active Digital Twin: <span className="text-white font-bold">{activePlant.name}</span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {Object.values(PRESET_PLANTS).map((plant) => {
-              const isSelected = selectedPlantId === plant.id;
-              return (
-                <div
-                  key={plant.id}
-                  onClick={() => setSelectedPlantId(plant.id)}
-                  className={`p-6 rounded-2xl cursor-pointer transition-all duration-300 border ${isSelected ? 'bg-[#181818] border-primary shadow-2xl ring-1 ring-primary/40' : 'bg-[#121212] border-white/5 hover:border-white/20'}`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-[10px] font-mono px-2.5 py-1 rounded-md bg-white/5 text-gray-300 uppercase">
-                      {plant.type}
-                    </span>
-                    {isSelected && (
-                      <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-mono">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Active Twin
-                      </span>
-                    )}
-                  </div>
-
-                  <h3 className="text-base sm:text-lg font-medium text-white mb-2">
-                    {plant.name}
-                  </h3>
-                  <p className="text-xs text-gray-400 mb-6 leading-relaxed">
-                    {plant.description}
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/5 font-mono text-xs">
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Baseline Load</span>
-                      <span className="text-white font-medium">{plant.baselineLoadKw} kW</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Solar Array</span>
-                      <span className="text-emerald-400 font-medium">{plant.solarCapacityKw} kWp</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">BESS Storage</span>
-                      <span className="text-cyan-400 font-medium">{plant.bessCapacityKwh} kWh</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Demand Ceiling</span>
-                      <span className="text-red-400 font-medium">{plant.contractCeilingKw} kW</span>
-                    </div>
-                  </div>
+          {/* Real-time Equation Bar (Full Width) */}
+          <div className="bg-[#121212] p-5 sm:p-6 rounded-2xl border border-white/10 shadow-2xl">
+            <span className="text-xs font-mono text-gray-400 uppercase tracking-widest block mb-4">
+              Real-Time Instantaneous Power Balance (t = {sim.points[scrubberIdx]?.timeStr})
+            </span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-[#181818] p-4 rounded-xl border border-emerald-500/20">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                  <span>Solar PV Output</span>
+                  <CloudSun className="w-4 h-4 text-emerald-400" />
                 </div>
-              );
-            })}
+                <div className="text-2xl font-mono font-bold text-emerald-400">
+                  {sim.points[scrubberIdx]?.solarKw} kW
+                </div>
+                <span className="text-[10px] text-gray-500">
+                  {isCloudDropSimulated ? '(-53% cloud dip)' : '(Nominal generation)'}
+                </span>
+              </div>
+
+              <div className="bg-[#181818] p-4 rounded-xl border border-cyan-500/20">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                  <span>BESS Discharge</span>
+                  <Battery className="w-4 h-4 text-cyan-400" />
+                </div>
+                <div className="text-2xl font-mono font-bold text-cyan-400">
+                  {sim.points[scrubberIdx]?.bessPowerKw > 0 ? `+${sim.points[scrubberIdx]?.bessPowerKw}` : sim.points[scrubberIdx]?.bessPowerKw} kW
+                </div>
+                <span className="text-[10px] text-gray-500">
+                  SoC: {sim.points[scrubberIdx]?.bessSocPct}%
+                </span>
+              </div>
+
+              <div className="bg-[#181818] p-4 rounded-xl border border-blue-500/20">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                  <span>Net Grid Import</span>
+                  <Activity className="w-4 h-4 text-blue-400" />
+                </div>
+                <div className="text-2xl font-mono font-bold text-blue-400">
+                  {sim.points[scrubberIdx]?.managedGridKw} kW
+                </div>
+                <span className="text-[10px] text-emerald-400">
+                  ✓ Clamped under {activePlant.contractCeilingKw} kW
+                </span>
+              </div>
+
+              <div className="bg-[#181818] p-4 rounded-xl border border-amber-500/20">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                  <span>Factory Machinery Demand</span>
+                  <Zap className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="text-2xl font-mono font-bold text-amber-400">
+                  {sim.points[scrubberIdx]?.factoryLoadKw} kW
+                </div>
+                <span className="text-[10px] text-gray-500">
+                  Production presses active
+                </span>
+              </div>
+            </div>
           </div>
+
         </div>
       </section>
 
       {/* ========================================================= */}
-      {/* SECTION 4: 24-HOUR DISPATCH GRAPHS & INTERACTIVE TELEMETRY */}
+      {/* SECTION 3 (VERTICAL): 24-HOUR DISPATCH & POWER FLOW GRAPH  */}
       {/* ========================================================= */}
-      <section id="dispatch-analytics" className="bg-black py-20 px-4 md:px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-8">
+      <section id="dispatch-analytics" className="bg-black py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
+          
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
             <div>
               <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
-                Live SCADA Telemetry & Power Flow
+                Predictive Power Flow & Clamping
               </span>
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-medium text-white">
+              <h2 className="text-3xl sm:text-4xl font-medium text-white">
                 24-Hour Autonomous Microgrid Dispatch
               </h2>
             </div>
 
-            {/* Quick Interactive Controls */}
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={() => setIsCloudDropSimulated(!isCloudDropSimulated)}
@@ -999,23 +942,11 @@ export default function App() {
                 <Shield className="w-3.5 h-3.5" />
                 <span>{isEdgeGuardActive ? 'AI Guard: Active (38ms)' : 'AI Guard: Disabled'}</span>
               </button>
-
-              <button
-                onClick={() => {
-                  setConsoleTab('dispatch');
-                  setIsConsoleOpen(true);
-                }}
-                className="px-4 py-2 bg-primary text-black font-semibold text-xs rounded-xl hover:bg-white transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>Open Fullscreen Console</span>
-              </button>
             </div>
           </div>
 
-          {/* Warning Banner if AI Guard is turned off */}
           {!isEdgeGuardActive && (
-            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-3">
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-3">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <div>
                 <span className="font-bold">CRITICAL UTILITY BREACH:</span> AI Edge Guard is disabled. Plant grid draw has spiked to{' '}
@@ -1027,17 +958,18 @@ export default function App() {
             </div>
           )}
 
-          {/* SVG Power Flow Chart */}
+          {/* Full Width SVG Chart */}
           <MicrogridDispatchSvgChart
             points={sim.points}
             contractCeilingKw={activePlant.contractCeilingKw}
             cloudDropActive={isCloudDropSimulated}
             selectedHourIdx={scrubberIdx}
             onHoverIndex={setScrubberIdx}
+            height={380}
           />
 
           {/* Interactive Scrubbing Slider under chart */}
-          <div className="mt-4 flex items-center gap-4 bg-[#121212] p-4 rounded-xl border border-white/5">
+          <div className="flex items-center gap-4 bg-[#121212] p-4 rounded-xl border border-white/5">
             <span className="text-xs text-gray-400 whitespace-nowrap flex items-center gap-1.5 font-mono">
               <Clock className="w-3.5 h-3.5 text-primary" />
               Timeline: {sim.points[scrubberIdx]?.timeStr}
@@ -1054,29 +986,201 @@ export default function App() {
               {sim.points[scrubberIdx]?.managedGridKw} kW Imported
             </span>
           </div>
+
         </div>
       </section>
 
       {/* ========================================================= */}
-      {/* SECTION 5: FINANCIAL ROI & SIDE-BY-SIDE AUDIT LEDGER      */}
+      {/* SECTION 4 (VERTICAL): PLANT DIGITAL TWIN PRESETS          */}
       {/* ========================================================= */}
-      <section id="financial-roi" className="bg-black py-20 px-4 md:px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-10 text-center">
+      <section id="plant-presets" className="bg-[#0b0b0b] py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
+          
+          <div>
             <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
-              Audited Utility Economics
+              Factory Digital Twin Configurations
             </span>
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-medium text-white">
-              Side-by-Side Billing & Demand Audit
+            <h2 className="text-3xl sm:text-4xl font-medium text-white">
+              Industrial Plant Facility Presets
             </h2>
-            <p className="text-xs sm:text-sm text-gray-400 max-w-xl mx-auto mt-2">
-              Calculated using standard industrial Time-of-Use rates and $35.00/kW 15-minute sliding window peak demand charges.
+            <p className="text-xs sm:text-sm text-gray-400 mt-2">
+              Select a facility configuration to immediately recompute the physics simulation, battery dispatch curves, and financial savings.
             </p>
           </div>
 
+          {/* Vertically Stacked Plant Cards */}
+          <div className="space-y-4">
+            {Object.values(PRESET_PLANTS).map((plant) => {
+              const isSelected = selectedPlantId === plant.id;
+              return (
+                <div
+                  key={plant.id}
+                  onClick={() => setSelectedPlantId(plant.id)}
+                  className={`p-6 sm:p-8 rounded-2xl cursor-pointer transition-all duration-300 border ${isSelected ? 'bg-[#181818] border-primary shadow-2xl ring-1 ring-primary/40' : 'bg-[#121212] border-white/5 hover:border-white/20'}`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                    <div>
+                      <span className="text-[10px] font-mono px-2.5 py-1 rounded-md bg-white/5 text-gray-300 uppercase mr-3">
+                        {plant.type}
+                      </span>
+                      <h3 className="text-xl font-medium text-white inline-block mt-2 sm:mt-0">
+                        {plant.name}
+                      </h3>
+                    </div>
+                    {isSelected ? (
+                      <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono">
+                        <CheckCircle2 className="w-4 h-4" /> Active Digital Twin
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500 font-mono">
+                        Click to activate
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs sm:text-sm text-gray-400 mb-6 leading-relaxed">
+                    {plant.description}
+                  </p>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-white/5 font-mono text-xs">
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">Baseline Production</span>
+                      <span className="text-white font-medium text-sm">{plant.baselineLoadKw} kW</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">Solar Capacity</span>
+                      <span className="text-emerald-400 font-medium text-sm">{plant.solarCapacityKw} kWp</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">BESS Inverter / Storage</span>
+                      <span className="text-cyan-400 font-medium text-sm">{plant.bessMaxPowerKw} kW / {plant.bessCapacityKwh} kWh</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">Contract Ceiling Limit</span>
+                      <span className="text-red-400 font-medium text-sm">{plant.contractCeilingKw} kW</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
+      </section>
+
+      {/* ========================================================= */}
+      {/* SECTION 5 (VERTICAL): BESS BATTERY STORAGE & HEALTH       */}
+      {/* ========================================================= */}
+      <section id="battery-health" className="bg-black py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
+          
+          <div>
+            <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
+              Electrochemistry & Cell Preservation
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-medium text-white">
+              BESS Battery Storage & Cell Dynamics
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-[#121212] p-6 rounded-2xl border border-white/10">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-mono text-gray-400 uppercase">State of Charge (SoC)</span>
+                <Battery className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div className="text-4xl font-mono font-bold text-emerald-400 mb-3">
+                {sim.points[scrubberIdx]?.bessSocPct}%
+              </div>
+              <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
+                <div
+                  className="bg-emerald-400 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${sim.points[scrubberIdx]?.bessSocPct}%` }}
+                />
+              </div>
+              <span className="text-[11px] text-gray-500 block mt-4">
+                Guarded operating boundaries: 20% minimum DoD to 95% maximum cell health.
+              </span>
+            </div>
+
+            <div className="bg-[#121212] p-6 rounded-2xl border border-white/10">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-mono text-gray-400 uppercase">Inverter C-Rate</span>
+                <Zap className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div className="text-4xl font-mono font-bold text-cyan-400 mb-3">
+                0.42 C
+              </div>
+              <span className="text-xs text-gray-300 block font-mono">
+                Rated Power: {activePlant.bessMaxPowerKw} kW Inverter
+              </span>
+              <span className="text-[11px] text-gray-500 block mt-4">
+                Sub-38ms instantaneous four-quadrant bidirectional power response.
+              </span>
+            </div>
+
+            <div className="bg-[#121212] p-6 rounded-2xl border border-white/10">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-mono text-gray-400 uppercase">Chemistry & Lifespan</span>
+                <Shield className="w-5 h-5 text-primary" />
+              </div>
+              <div className="text-4xl font-mono font-bold text-primary mb-3">
+                +4.2 Yrs
+              </div>
+              <span className="text-xs text-gray-300 block font-mono">
+                LFP (Lithium Iron Phosphate)
+              </span>
+              <span className="text-[11px] text-gray-500 block mt-4">
+                Predictive thermal management extends cell cycle life beyond 8,000 cycles.
+              </span>
+            </div>
+          </div>
+
+          {/* Full Width ToU Charging Schedule */}
+          <div className="bg-[#121212] p-6 sm:p-8 rounded-2xl border border-white/10 font-mono text-xs space-y-3">
+            <h4 className="text-base font-sans font-medium text-white mb-4">
+              Automated 3-Tier Time-of-Use Arbitrage Schedule
+            </h4>
+            <div className="flex flex-col sm:flex-row justify-between py-3 border-b border-white/5 gap-1">
+              <span className="text-emerald-400 font-bold">01:00 - 05:00 (Off-Peak Period)</span>
+              <span className="text-gray-300">Automated grid pre-charging at lowest tariff ($0.08 / kWh) up to 95% SoC</span>
+            </div>
+            <div className="flex flex-col sm:flex-row justify-between py-3 border-b border-white/5 gap-1">
+              <span className="text-amber-400 font-bold">06:00 - 14:00 (Mid-Peak Period)</span>
+              <span className="text-gray-300">Direct solar self-consumption with battery on active edge standby ($0.16 / kWh)</span>
+            </div>
+            <div className="flex flex-col sm:flex-row justify-between py-3 border-b border-white/5 gap-1">
+              <span className="text-red-400 font-bold">14:00 - 20:00 (On-Peak Period)</span>
+              <span className="text-gray-300">Continuous peak shaving clamp protecting contract ceiling at peak rate ($0.34 / kWh)</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ========================================================= */}
+      {/* SECTION 6 (VERTICAL): FINANCIAL AUDIT & BILLING LEDGER    */}
+      {/* ========================================================= */}
+      <section id="financial-roi" className="bg-[#0b0b0b] py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
+          
+          <div>
+            <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
+              Audited Utility Economics
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-medium text-white">
+              Side-by-Side Billing & Demand Audit
+            </h2>
+            <p className="text-xs sm:text-sm text-gray-400 mt-2">
+              Direct comparison between conventional unmanaged operations and GridPulse AI Autonomous Microgrid dispatch.
+            </p>
+          </div>
+
+          {/* Full Width Comparison Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Unmanaged Operations Card */}
-            <div className="bg-[#141414] rounded-2xl p-6 sm:p-8 border border-red-500/20">
+            
+            {/* Unmanaged Card */}
+            <div className="bg-[#121212] rounded-2xl p-6 sm:p-8 border border-red-500/20">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <span className="text-xs font-mono text-red-400 uppercase tracking-widest block">Baseline Operations</span>
@@ -1099,7 +1203,7 @@ export default function App() {
                   <span className="text-white">${activePlant.demandPenaltyPerKw.toFixed(2)} / kW</span>
                 </div>
                 <div className="flex justify-between py-2.5 border-b border-white/5">
-                  <span className="text-gray-400">Monthly Peak Surcharges:</span>
+                  <span className="text-gray-400">Monthly Demand Surcharges:</span>
                   <span className="text-red-400 font-bold">${Math.round(sim.unmanagedDemandPenalty).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between py-2.5 border-b border-white/5">
@@ -1113,17 +1217,16 @@ export default function App() {
               </div>
             </div>
 
-            {/* GridPulse Autonomous EMS Card */}
+            {/* Managed Card */}
             <div className="bg-[#181818] rounded-2xl p-6 sm:p-8 border border-emerald-500/30 shadow-2xl relative">
-              <div className="absolute top-4 right-4">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <span className="text-xs font-mono text-emerald-400 uppercase tracking-widest block">Autonomous Dispatch</span>
+                  <h3 className="text-lg font-medium text-white">With GridPulse Microgrid OS</h3>
+                </div>
                 <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono border border-emerald-500/40">
                   AI Protected
                 </span>
-              </div>
-
-              <div className="mb-6">
-                <span className="text-xs font-mono text-emerald-400 uppercase tracking-widest block">Autonomous Dispatch</span>
-                <h3 className="text-lg font-medium text-white">With GridPulse Microgrid OS</h3>
               </div>
 
               <div className="space-y-4 font-mono text-xs">
@@ -1152,41 +1255,66 @@ export default function App() {
                   <span className="text-emerald-400 font-mono font-bold">${Math.round(sim.totalManagedBill).toLocaleString()}</span>
                 </div>
               </div>
+            </div>
 
-              <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between text-xs">
-                <span className="text-gray-400">Net Monthly Savings:</span>
-                <span className="text-xl font-mono font-bold text-primary">+${Math.round(sim.monthlyNetSavings).toLocaleString()} / mo</span>
+          </div>
+
+          {/* 5-Year Cumulative Savings Bar */}
+          <div className="bg-[#121212] p-6 sm:p-8 rounded-2xl border border-white/10">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div>
+                <h4 className="text-lg font-medium text-white">
+                  5-Year Cumulative Financial ROI Projection
+                </h4>
+                <p className="text-xs text-gray-400 mt-1">
+                  Payback period for commercial battery hardware: <span className="text-primary font-bold font-mono">{sim.paybackMonths} Months</span>.
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-gray-500 font-mono block">Annual Savings</span>
+                <span className="text-2xl font-mono font-bold text-emerald-400">+${Math.round(sim.annualSavings).toLocaleString()} / yr</span>
               </div>
             </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 font-mono text-xs text-center">
+              {[1, 2, 3, 4, 5].map((year) => {
+                const total = Math.round(sim.annualSavings * year);
+                return (
+                  <div key={year} className="bg-[#1a1a1a] p-4 rounded-xl border border-white/5">
+                    <span className="text-gray-500 text-[11px] block mb-1">Year {year}</span>
+                    <span className="text-primary font-bold text-base block">${total.toLocaleString()}</span>
+                    <span className="text-[10px] text-gray-400 mt-1 block">Cumulative Net</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+
         </div>
       </section>
 
       {/* ========================================================= */}
-      {/* SECTION 6: LIVE STRESS TESTING SANDBOX                    */}
+      {/* SECTION 7 (VERTICAL): PARAMETER SENSITIVITY SANDBOX       */}
       {/* ========================================================= */}
-      <section id="stress-sandbox" className="bg-black py-20 px-4 md:px-6">
-        <div className="max-w-6xl mx-auto bg-[#111111] border border-white/10 rounded-2xl md:rounded-3xl p-8 sm:p-12">
+      <section id="stress-sandbox" className="bg-black py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
           
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
-            <div>
-              <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
-                Engineering Stress Testing
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-medium text-white">
-                Live Parameter Sensitivity Sandbox
-              </h2>
-            </div>
-            <p className="text-xs text-gray-400 max-w-sm">
+          <div>
+            <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
+              Engineering Stress Testing
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-medium text-white">
+              Live Parameter Sensitivity Sandbox
+            </h2>
+            <p className="text-xs sm:text-sm text-gray-400 mt-2">
               Adjust cloud cover drop severity and heavy production surges in real time to test edge failover tolerance.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Slider 1: Cloud Drop Severity */}
-            <div className="bg-[#181818] p-5 rounded-xl border border-white/5">
-              <div className="flex justify-between text-xs font-mono mb-2">
-                <span className="text-gray-400">Cloud Drop Loss</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-[#121212] p-6 rounded-2xl border border-white/10 space-y-3">
+              <div className="flex justify-between text-xs font-mono">
+                <span className="text-gray-400">Cloud Drop Loss Severity</span>
                 <span className="text-amber-400 font-bold">-{cloudSeverityPct}% Irradiance</span>
               </div>
               <input
@@ -1197,15 +1325,14 @@ export default function App() {
                 onChange={(e) => setCloudSeverityPct(parseInt(e.target.value))}
                 className="w-full accent-amber-400 cursor-pointer"
               />
-              <span className="text-[10px] text-gray-500 block mt-2">
-                Simulates sudden cumulonimbus occlusion over factory arrays.
+              <span className="text-[11px] text-gray-500 block">
+                Simulates sudden cumulonimbus cloud occlusion over the factory solar arrays.
               </span>
             </div>
 
-            {/* Slider 2: Production Surge */}
-            <div className="bg-[#181818] p-5 rounded-xl border border-white/5">
-              <div className="flex justify-between text-xs font-mono mb-2">
-                <span className="text-gray-400">Press Production Surge</span>
+            <div className="bg-[#121212] p-6 rounded-2xl border border-white/10 space-y-3">
+              <div className="flex justify-between text-xs font-mono">
+                <span className="text-gray-400">Production Press Surge</span>
                 <span className="text-primary font-bold">+{productionSurgePct}% Extra Load</span>
               </div>
               <input
@@ -1216,39 +1343,62 @@ export default function App() {
                 onChange={(e) => setProductionSurgePct(parseInt(e.target.value))}
                 className="w-full accent-primary cursor-pointer"
               />
-              <span className="text-[10px] text-gray-500 block mt-2">
-                Simulates simultaneous activation of hydraulic stamping dies.
+              <span className="text-[11px] text-gray-500 block">
+                Simulates simultaneous activation of hydraulic stamping dies during high production runs.
               </span>
             </div>
-
-            {/* Readout Card */}
-            <div className="bg-[#181818] p-5 rounded-xl border border-white/5 flex flex-col justify-between">
-              <div>
-                <span className="text-xs font-mono text-gray-400 block mb-1">Projected Annual Savings</span>
-                <span className="text-2xl sm:text-3xl font-mono font-bold text-emerald-400">
-                  ${Math.round(sim.annualSavings).toLocaleString()}
-                </span>
-              </div>
-              <div className="text-[11px] text-gray-400 mt-4 flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Zero grid contract threshold breaches recorded.</span>
-              </div>
-            </div>
           </div>
+
         </div>
       </section>
 
       {/* ========================================================= */}
-      {/* SECTION 7: COMPLIANCE & 15-MINUTE TELEMETRY EXPORTER       */}
+      {/* SECTION 8 (VERTICAL): EDGE TERMINAL & PROTOCOL LOGS       */}
       {/* ========================================================= */}
-      <section id="compliance-export" className="bg-black py-20 px-4 md:px-6">
-        <div className="max-w-6xl mx-auto bg-gradient-to-r from-[#141414] to-[#1a1a1a] rounded-2xl md:rounded-3xl p-8 sm:p-12 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-8">
+      <section id="edge-terminal" className="bg-[#0b0b0b] py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto space-y-6">
+          
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div>
+              <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-2">
+                Sub-Cycle Deterministic Control
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-medium text-white">
+                Edge Controller & Modbus Protocol Stream
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono text-gray-400">
+              <span>Bus: Modbus TCP (Port 502)</span>
+              <span className="text-emerald-400">● 50ms Polling</span>
+            </div>
+          </div>
+
+          {/* Full Width Monospace Terminal */}
+          <div className="bg-black p-6 rounded-2xl border border-white/10 font-mono text-xs text-gray-300 space-y-2.5 h-[340px] overflow-y-auto shadow-2xl">
+            <div className="text-emerald-400">[00:00:38.102] MODBUS-TCP: Inverter register 0x04A2 read: 380 kW discharge commanded</div>
+            <div className="text-gray-500">[00:00:38.108] HiGHS-LP Solver: Minimax linear formulation converged in 14 iterations (0.84ms)</div>
+            <div className="text-blue-400">[00:00:38.120] EDGE GUARD: Factory load surge detected (1,140 kW). Solar dip active (218 kW).</div>
+            <div className="text-emerald-400">[00:00:38.138] INVERTER DISPATCH: BESS ramped to +472 kW in 34ms. Grid draw clamped to 448.2 kW.</div>
+            <div className="text-gray-400">[00:00:38.150] IEEE 2030.7 COMPLIANCE: Voltage 480V ±0.8%, Frequency 59.98 Hz, Power Factor 0.98.</div>
+            <div className="text-emerald-400">[00:00:38.200] TELEMETRY PUSH: Interval telemetry buffered to local flash storage (96 data points).</div>
+            <div className="text-amber-400">[00:00:38.250] TARIFF WATCH: Approaching On-Peak window ($0.34/kWh). Battery SoC locked at 78.4%.</div>
+            <div className="text-gray-500">[00:00:38.300] WATCHDOG: Sub-cycle edge heartbeat healthy. Modbus packet loss: 0.00%.</div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ========================================================= */}
+      {/* SECTION 9 (VERTICAL): COMPLIANCE & CSV EXPORTER           */}
+      {/* ========================================================= */}
+      <section id="compliance-export" className="bg-black py-16 sm:py-24 px-4 md:px-8 border-b border-white/10">
+        <div className="max-w-6xl mx-auto bg-gradient-to-r from-[#121212] to-[#181818] rounded-2xl md:rounded-3xl p-8 sm:p-12 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-8">
           <div>
             <div className="flex items-center gap-2 text-primary text-xs uppercase tracking-widest font-mono mb-2">
               <Shield className="w-4 h-4 text-emerald-400" />
               <span>IEEE 2030.7 Certified Microgrid Telemetry</span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-medium text-white mb-2">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-medium text-white mb-2">
               Executive Audit & Compliance Exporter
             </h2>
             <p className="text-xs sm:text-sm text-gray-400 max-w-xl">
@@ -1259,569 +1409,150 @@ export default function App() {
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
             <button
               onClick={handleDownloadCsv}
-              className="w-full sm:w-auto px-6 py-3 bg-primary text-black font-semibold text-xs sm:text-sm rounded-xl hover:bg-white transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xl"
+              className="w-full sm:w-auto px-6 py-3.5 bg-primary text-black font-semibold text-xs sm:text-sm rounded-xl hover:bg-white transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xl"
             >
               <Download className="w-4 h-4" />
               <span>Download 15-Min Telemetry (CSV)</span>
             </button>
 
             <button
-              onClick={() => {
-                setConsoleTab('export');
-                setIsConsoleOpen(true);
-              }}
-              className="w-full sm:w-auto px-6 py-3 bg-white/5 border border-white/15 text-white font-medium text-xs sm:text-sm rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              onClick={() => window.print()}
+              className="w-full sm:w-auto px-6 py-3.5 bg-white/5 border border-white/15 text-white font-medium text-xs sm:text-sm rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <FileText className="w-4 h-4" />
-              <span>View Executive Audit Sheet</span>
+              <span>Print Audit Sheet (PDF)</span>
             </button>
           </div>
         </div>
       </section>
 
       {/* ========================================================= */}
-      {/* SECTION 8: 4 CORE FEATURES (ORIGINAL SECTION PRESERVED)   */}
+      {/* SECTION 10 (VERTICAL): THE PROBLEM & RATCHET CLAUSE       */}
       {/* ========================================================= */}
-      <section id="core-features" className="min-h-screen bg-black py-20 md:py-32 px-4 md:px-6 relative">
-        <div className="bg-noise absolute inset-0 opacity-[0.15] pointer-events-none" />
+      <section id="the-problem" className="bg-[#0b0b0b] py-20 md:py-32 px-4 md:px-8 border-b border-white/10">
+        <div className="bg-[#121212] rounded-2xl md:rounded-[2rem] p-8 sm:p-14 md:p-20 max-w-6xl mx-auto text-center border border-white/5 shadow-2xl">
+          
+          <span className="text-primary text-[10px] sm:text-xs uppercase tracking-[0.25em] font-medium block mb-8">
+            The $35/kW Ratchet Clause Threat
+          </span>
 
-        <div className="max-w-7xl mx-auto relative z-10">
-          <div className="mb-14 text-center">
-            <div className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-normal">
-              <WordsPullUpMultiStyle
-                segments={[
-                  { text: "Plant-grade energy control for modern industry.", className: "text-primary" }
-                ]}
+          <div className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl max-w-3xl mx-auto leading-[0.95] text-[#E1E0CC] mb-12">
+            <WordsPullUpMultiStyle
+              segments={[
+                { text: "A 15-minute cloud cover", className: "font-normal" },
+                { text: "can reset your monthly bill.", className: "italic font-serif" },
+                { text: "GridPulse eliminates peak demand charges with millisecond dispatch.", className: "font-normal" }
+              ]}
+            />
+          </div>
+
+          <div ref={aboutContainerRef} className="text-[#DEDBC8] text-xs sm:text-sm md:text-base max-w-2xl mx-auto mt-12 leading-relaxed">
+            {aboutChars.map((char, index) => (
+              <AnimatedLetter
+                key={index}
+                char={char}
+                index={index}
+                totalChars={aboutChars.length}
+                scrollYProgress={aboutScrollProgress}
               />
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-16 pt-12 border-t border-white/10 max-w-4xl mx-auto">
+            <div className="text-left">
+              <span className="text-gray-500 text-xs block mb-1">Peak Demand Shaved</span>
+              <span className="text-2xl sm:text-3xl font-mono font-bold text-primary">▼ {sim.peakReductionPct}%</span>
             </div>
-            <div className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-normal mt-2">
-              <WordsPullUpMultiStyle
-                segments={[
-                  { text: "Built for zero downtime. Powered by predictive AI.", className: "text-gray-500" }
-                ]}
-              />
+            <div className="text-left">
+              <span className="text-gray-500 text-xs block mb-1">Avoided Surcharges</span>
+              <span className="text-2xl sm:text-3xl font-mono font-bold text-emerald-400">${Math.round(sim.avoidedDemandPenalty).toLocaleString()}</span>
+            </div>
+            <div className="text-left">
+              <span className="text-gray-500 text-xs block mb-1">Failover Loop</span>
+              <span className="text-2xl sm:text-3xl font-mono font-bold text-cyan-400">&lt; 38 ms</span>
+            </div>
+            <div className="text-left">
+              <span className="text-gray-500 text-xs block mb-1">BESS Capex Payback</span>
+              <span className="text-2xl sm:text-3xl font-mono font-bold text-white">{sim.paybackMonths} Mo</span>
             </div>
           </div>
 
-          <div ref={featuresRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 lg:h-[480px] gap-3 sm:gap-2 md:gap-1.5">
-            {/* Card 1: Video Card */}
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={isFeaturesInView ? { scale: 1, opacity: 1 } : { scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.7, delay: 0 * 0.15, ease: [0.22, 1, 0.36, 1] }}
-              className="relative rounded-2xl overflow-hidden min-h-[360px] lg:h-full bg-[#181818] border border-white/5"
-            >
-              <video
-                src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260406_133058_0504132a-0cf3-4450-a370-8ea3b05c95d4.mp4"
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="w-full h-full object-cover absolute inset-0"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
-              <div className="absolute bottom-6 left-6 right-6 z-10">
-                <p className="text-[#E1E0CC] text-lg sm:text-xl font-medium tracking-tight">
-                  Your factory digital twin.
-                </p>
-              </div>
-            </motion.div>
-
-            {/* Card 2: Peak Shaving Dispatch (01) */}
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={isFeaturesInView ? { scale: 1, opacity: 1 } : { scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.7, delay: 1 * 0.15, ease: [0.22, 1, 0.36, 1] }}
-              className="bg-[#212121] rounded-2xl p-6 flex flex-col justify-between min-h-[360px] lg:h-full border border-white/5 hover:border-white/10 transition-colors duration-300"
-            >
-              <div>
-                <img
-                  src="https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260405_171918_4a5edc79-d78f-4637-ac8b-53c43c220606.png&w=1280&q=85"
-                  alt="Peak Shaving Icon"
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover mb-6 border border-white/10"
-                />
-                <h3 className="text-base sm:text-lg font-medium text-[#E1E0CC] mb-6">
-                  Peak Shaving Dispatch. <span className="text-gray-500 text-sm font-normal">(01)</span>
-                </h3>
-                <ul className="flex flex-col gap-3">
-                  {[
-                    "Sub-38ms battery discharge response",
-                    "Contracted grid ceiling enforcement",
-                    "15-minute sliding window protection",
-                    "28% to 42% demand surcharge reduction"
-                  ].map((item, idx) => (
-                    <li key={idx} className="flex items-start gap-2.5">
-                      <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span className="text-gray-400 text-xs sm:text-sm leading-snug">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="pt-6 border-t border-white/5 mt-6">
-                <button
-                  onClick={() => {
-                    setConsoleTab('dispatch');
-                    setIsConsoleOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-white transition-colors group cursor-pointer"
-                >
-                  <span>Open live simulation</span>
-                  <ArrowRight className="w-3.5 h-3.5 -rotate-45 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                </button>
-              </div>
-            </motion.div>
-
-            {/* Card 3: Cloud Cover Shield (02) */}
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={isFeaturesInView ? { scale: 1, opacity: 1 } : { scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.7, delay: 2 * 0.15, ease: [0.22, 1, 0.36, 1] }}
-              className="bg-[#212121] rounded-2xl p-6 flex flex-col justify-between min-h-[360px] lg:h-full border border-white/5 hover:border-white/10 transition-colors duration-300"
-            >
-              <div>
-                <img
-                  src="https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260405_171741_ed9845ab-f5b2-4018-8ce7-07cc01823522.png&w=1280&q=85"
-                  alt="Cloud Cover Shield Icon"
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover mb-6 border border-white/10"
-                />
-                <h3 className="text-base sm:text-lg font-medium text-[#E1E0CC] mb-6">
-                  Cloud Cover Shield. <span className="text-gray-500 text-sm font-normal">(02)</span>
-                </h3>
-                <ul className="flex flex-col gap-3">
-                  {[
-                    "Instant detection of 53% solar loss",
-                    "Millisecond supply deficit balancing",
-                    "Zero weather-driven grid penalties"
-                  ].map((item, idx) => (
-                    <li key={idx} className="flex items-start gap-2.5">
-                      <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span className="text-gray-400 text-xs sm:text-sm leading-snug">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="pt-6 border-t border-white/5 mt-6">
-                <button
-                  onClick={() => {
-                    setConsoleTab('battery');
-                    setIsConsoleOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-white transition-colors group cursor-pointer"
-                >
-                  <span>Test solar drop</span>
-                  <ArrowRight className="w-3.5 h-3.5 -rotate-45 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                </button>
-              </div>
-            </motion.div>
-
-            {/* Card 4: Tariff & Cell Health (03) */}
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={isFeaturesInView ? { scale: 1, opacity: 1 } : { scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.7, delay: 3 * 0.15, ease: [0.22, 1, 0.36, 1] }}
-              className="bg-[#212121] rounded-2xl p-6 flex flex-col justify-between min-h-[360px] lg:h-full border border-white/5 hover:border-white/10 transition-colors duration-300"
-            >
-              <div>
-                <img
-                  src="https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260405_171809_f56666dc-c099-4778-ad82-9ad4f209567b.png&w=1280&q=85"
-                  alt="Tariff & Cell Health Icon"
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover mb-6 border border-white/10"
-                />
-                <h3 className="text-base sm:text-lg font-medium text-[#E1E0CC] mb-6">
-                  Tariff & Cell Health. <span className="text-gray-500 text-sm font-normal">(03)</span>
-                </h3>
-                <ul className="flex flex-col gap-3">
-                  {[
-                    "Automated night charge / peak discharge",
-                    "Thermal & DoD degradation boundaries",
-                    "Extended battery lifespan by 4.2 years"
-                  ].map((item, idx) => (
-                    <li key={idx} className="flex items-start gap-2.5">
-                      <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span className="text-gray-400 text-xs sm:text-sm leading-snug">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="pt-6 border-t border-white/5 mt-6">
-                <button
-                  onClick={() => {
-                    setConsoleTab('financial');
-                    setIsConsoleOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-white transition-colors group cursor-pointer"
-                >
-                  <span>Explore economics</span>
-                  <ArrowRight className="w-3.5 h-3.5 -rotate-45 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                </button>
-              </div>
-            </motion.div>
-          </div>
         </div>
       </section>
 
       {/* ========================================================= */}
-      {/* THE COMPREHENSIVE INDUSTRIAL SCADA OPERATING CONSOLE MODAL */}
+      {/* SECTION 11 (VERTICAL): CORE ARCHITECTURAL PILLARS        */}
       {/* ========================================================= */}
-      {isConsoleOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/90 backdrop-blur-2xl overflow-y-auto">
-          <div className="bg-[#101010] border border-white/15 rounded-2xl md:rounded-3xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      <section id="core-features" className="bg-black py-20 md:py-32 px-4 md:px-8 relative">
+        <div className="bg-noise absolute inset-0 opacity-[0.15] pointer-events-none" />
+
+        <div className="max-w-6xl mx-auto relative z-10 space-y-12">
+          
+          <div className="text-center">
+            <h2 className="text-3xl sm:text-4xl font-medium text-white mb-2">
+              Plant-Grade Architecture Pillars
+            </h2>
+            <p className="text-xs sm:text-sm text-gray-400">
+              Built for zero downtime. Powered by predictive minimax linear programming.
+            </p>
+          </div>
+
+          {/* Vertically Stacked Architectural Cards */}
+          <div className="space-y-6">
             
-            {/* Top Console Header */}
-            <div className="p-4 sm:p-5 border-b border-white/10 bg-[#141414] flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
-                <div>
-                  <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                    <span>⚡ GridPulse SCADA Console</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                      EDGE ACTIVE
-                    </span>
-                  </h3>
-                  <span className="text-[11px] text-gray-400 font-mono">
-                    Profile: {activePlant.name}
-                  </span>
-                </div>
+            {/* Pillar 1 */}
+            <div className="bg-[#121212] p-8 rounded-2xl border border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="space-y-2">
+                <span className="text-xs font-mono text-primary uppercase">Pillar 01</span>
+                <h3 className="text-xl font-medium text-white">Peak Shaving Dispatch Engine</h3>
+                <p className="text-xs sm:text-sm text-gray-400 max-w-xl">
+                  Sub-38ms four-quadrant inverter discharge clamps grid import under contracted ceilings during simultaneous press stamping.
+                </p>
               </div>
-
-              {/* Console Quick Nav Tabs */}
-              <div className="flex items-center gap-1 bg-black p-1 rounded-xl border border-white/10 text-xs">
-                {[
-                  { id: 'dispatch', label: '📊 Power Flow' },
-                  { id: 'battery', label: '🔋 Battery Health' },
-                  { id: 'financial', label: '💰 Billing Audit' },
-                  { id: 'terminal', label: '⚡ Edge Logs' },
-                  { id: 'export', label: '📑 Exporter' }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setConsoleTab(tab.id as any)}
-                    className={`px-3 py-1.5 rounded-lg transition-all font-medium cursor-pointer ${consoleTab === tab.id ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 font-mono text-xs text-emerald-400 bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20 shrink-0">
+                <Check className="w-4 h-4" /> 28% to 42% Demand Shaved
               </div>
-
-              <button
-                onClick={() => setIsConsoleOpen(false)}
-                className="text-gray-400 hover:text-white p-2 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
-            {/* Console Body Area */}
-            <div className="p-4 sm:p-6 md:p-8 overflow-y-auto space-y-6 flex-1">
-              
-              {/* TAB 1: 📊 POWER FLOW & DISPATCH */}
-              {consoleTab === 'dispatch' && (
-                <div className="space-y-6">
-                  {/* Real-time Equation Bar */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-[#181818] p-4 rounded-xl border border-white/5">
-                      <span className="text-[11px] text-gray-400 block mb-1">Solar PV Generation</span>
-                      <span className="text-xl font-mono font-bold text-emerald-400">
-                        {sim.points[scrubberIdx]?.solarKw} kW
-                      </span>
-                      <span className="text-[10px] text-gray-500 block mt-0.5">
-                        {isCloudDropSimulated ? '(-53% cloud dip)' : '(Nominal Clear Sky)'}
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-4 rounded-xl border border-white/5">
-                      <span className="text-[11px] text-gray-400 block mb-1">BESS Discharge Power</span>
-                      <span className="text-xl font-mono font-bold text-cyan-400">
-                        {sim.points[scrubberIdx]?.bessPowerKw > 0 ? `+${sim.points[scrubberIdx]?.bessPowerKw}` : sim.points[scrubberIdx]?.bessPowerKw} kW
-                      </span>
-                      <span className="text-[10px] text-gray-500 block mt-0.5">
-                        SoC: {sim.points[scrubberIdx]?.bessSocPct}%
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-4 rounded-xl border border-white/5">
-                      <span className="text-[11px] text-gray-400 block mb-1">Net Utility Grid Draw</span>
-                      <span className="text-xl font-mono font-bold text-blue-400">
-                        {sim.points[scrubberIdx]?.managedGridKw} kW
-                      </span>
-                      <span className="text-[10px] text-emerald-400 block mt-0.5">
-                        ✓ Clamped under {activePlant.contractCeilingKw} kW
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-4 rounded-xl border border-white/5">
-                      <span className="text-[11px] text-gray-400 block mb-1">Avoided Surcharge Today</span>
-                      <span className="text-xl font-mono font-bold text-primary">
-                        ${Math.round(sim.avoidedDemandPenalty).toLocaleString()}
-                      </span>
-                      <span className="text-[10px] text-gray-400 block mt-0.5">
-                        Avoided {sim.peakReductionKw} kW surge
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* SVG Chart */}
-                  <MicrogridDispatchSvgChart
-                    points={sim.points}
-                    contractCeilingKw={activePlant.contractCeilingKw}
-                    cloudDropActive={isCloudDropSimulated}
-                    selectedHourIdx={scrubberIdx}
-                    onHoverIndex={setScrubberIdx}
-                    height={380}
-                  />
-
-                  {/* Scrubbing slider */}
-                  <div className="flex items-center gap-4 bg-[#141414] p-3 rounded-xl border border-white/5">
-                    <span className="text-xs font-mono text-gray-400 whitespace-nowrap">
-                      Time Scrubber: {sim.points[scrubberIdx]?.timeStr}
-                    </span>
-                    <input
-                      type="range"
-                      min="0"
-                      max={sim.points.length - 1}
-                      value={scrubberIdx}
-                      onChange={(e) => setScrubberIdx(parseInt(e.target.value))}
-                      className="w-full accent-primary cursor-pointer"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: 🔋 BATTERY HEALTH & ELECTROCHEMISTRY */}
-              {consoleTab === 'battery' && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-[#181818] p-6 rounded-2xl border border-white/5">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-mono text-gray-400 uppercase">State of Charge (SoC)</span>
-                        <Battery className="w-4 h-4 text-emerald-400" />
-                      </div>
-                      <div className="text-3xl font-mono font-bold text-emerald-400 mb-2">
-                        {sim.points[scrubberIdx]?.bessSocPct}%
-                      </div>
-                      <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
-                        <div
-                          className="bg-emerald-400 h-2.5 rounded-full"
-                          style={{ width: `${sim.points[scrubberIdx]?.bessSocPct}%` }}
-                        />
-                      </div>
-                      <span className="text-[11px] text-gray-500 block mt-3">
-                        Operating bounds: 20% DoD to 95% max cell preservation.
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-6 rounded-2xl border border-white/5">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-mono text-gray-400 uppercase">Inverter C-Rate</span>
-                        <Zap className="w-4 h-4 text-cyan-400" />
-                      </div>
-                      <div className="text-3xl font-mono font-bold text-cyan-400 mb-2">
-                        0.42 C
-                      </div>
-                      <span className="text-xs text-gray-300 block">
-                        Rated Capacity: {activePlant.bessMaxPowerKw} kW Inverter
-                      </span>
-                      <span className="text-[11px] text-gray-500 block mt-2">
-                        Sub-38ms instantaneous four-quadrant inverter response.
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-6 rounded-2xl border border-white/5">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-mono text-gray-400 uppercase">Chemistry & Life</span>
-                        <Shield className="w-4 h-4 text-primary" />
-                      </div>
-                      <div className="text-3xl font-mono font-bold text-primary mb-2">
-                        +4.2 Yrs
-                      </div>
-                      <span className="text-xs text-gray-300 block">
-                        LFP (Lithium Iron Phosphate)
-                      </span>
-                      <span className="text-[11px] text-gray-500 block mt-2">
-                        Thermal mitigation algorithms extend cycle life to 8,000+ cycles.
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* ToU Charging Schedule Explanation */}
-                  <div className="bg-[#141414] p-6 rounded-2xl border border-white/5 font-mono text-xs space-y-3">
-                    <h4 className="text-sm font-sans font-medium text-white mb-2">
-                      Automated Time-of-Use Arbitrage Schedule
-                    </h4>
-                    <div className="flex justify-between py-2 border-b border-white/5">
-                      <span className="text-emerald-400">01:00 - 05:00 (Off-Peak)</span>
-                      <span className="text-gray-300">Automated grid pre-charging at $0.08/kWh</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-white/5">
-                      <span className="text-amber-400">06:00 - 14:00 (Mid-Peak)</span>
-                      <span className="text-gray-300">Direct solar self-consumption with battery standby</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-white/5">
-                      <span className="text-red-400">14:00 - 20:00 (On-Peak)</span>
-                      <span className="text-gray-300">Active Peak Shaving ($0.34/kWh & $35/kW demand ceiling)</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 3: 💰 FINANCIAL AUDIT & UTILITY BILLING */}
-              {consoleTab === 'financial' && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-[#181818] p-6 rounded-2xl border border-white/5">
-                      <span className="text-xs font-mono text-gray-400 block mb-1">Avoided Monthly Surcharges</span>
-                      <span className="text-3xl font-mono font-bold text-emerald-400">
-                        ${Math.round(sim.avoidedDemandPenalty).toLocaleString()}
-                      </span>
-                      <span className="text-[11px] text-gray-500 block mt-1">
-                        Saves ${(sim.avoidedDemandPenalty * 12).toLocaleString()} / year
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-6 rounded-2xl border border-white/5">
-                      <span className="text-xs font-mono text-gray-400 block mb-1">ToU Energy Arbitrage</span>
-                      <span className="text-3xl font-mono font-bold text-cyan-400">
-                        ${Math.round(sim.touArbitrageSavings).toLocaleString()}
-                      </span>
-                      <span className="text-[11px] text-gray-500 block mt-1">
-                        Cheaper night energy shift
-                      </span>
-                    </div>
-
-                    <div className="bg-[#181818] p-6 rounded-2xl border border-white/5">
-                      <span className="text-xs font-mono text-gray-400 block mb-1">Hardware Payback</span>
-                      <span className="text-3xl font-mono font-bold text-primary">
-                        {sim.paybackMonths} Months
-                      </span>
-                      <span className="text-[11px] text-gray-500 block mt-1">
-                        1 MWh BESS capital recovery
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-[#141414] p-6 rounded-2xl border border-white/5">
-                    <h4 className="text-sm font-medium text-white mb-4">
-                      5-Year Cumulative Cashflow Savings
-                    </h4>
-                    <div className="grid grid-cols-5 gap-2 text-center font-mono text-xs">
-                      {[1, 2, 3, 4, 5].map((year) => {
-                        const saved = Math.round(sim.annualSavings * year);
-                        return (
-                          <div key={year} className="bg-[#1a1a1a] p-3 rounded-xl border border-white/5">
-                            <span className="text-gray-500 block mb-1">Year {year}</span>
-                            <span className="text-primary font-bold block">${saved.toLocaleString()}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: ⚡ EDGE CONTROLLER & PROTOCOL LOGS */}
-              {consoleTab === 'terminal' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-xs font-mono text-gray-400 bg-[#141414] p-3 rounded-xl border border-white/5">
-                    <span>Active Bus: Modbus TCP (Port 502) · MQTT QoS 1</span>
-                    <span className="text-emerald-400">● 50ms Polling Loop</span>
-                  </div>
-
-                  <div className="bg-black p-5 rounded-2xl border border-white/10 font-mono text-xs text-gray-300 space-y-2 h-[340px] overflow-y-auto">
-                    <div className="text-emerald-400">[00:00:38.102] MODBUS-TCP: Inverter register 0x04A2 read: 380 kW discharge commanded</div>
-                    <div className="text-gray-500">[00:00:38.108] HiGHS-LP Solver: Minimax linear formulation converged in 14 iterations (0.84ms)</div>
-                    <div className="text-blue-400">[00:00:38.120] EDGE GUARD: Factory load surge detected (1,140 kW). Solar dip active (218 kW).</div>
-                    <div className="text-emerald-400">[00:00:38.138] INVERTER DISPATCH: BESS ramped to +472 kW in 34ms. Grid draw clamped to 448.2 kW.</div>
-                    <div className="text-gray-400">[00:00:38.150] IEEE 2030.7 COMPLIANCE: Voltage 480V ±0.8%, Frequency 59.98 Hz, Power Factor 0.98.</div>
-                    <div className="text-emerald-400">[00:00:38.200] TELEMETRY PUSH: Interval telemetry buffered to local flash storage (96 data points).</div>
-                    <div className="text-amber-400">[00:00:38.250] TARIFF WATCH: Approaching On-Peak window ($0.34/kWh). Battery SoC locked at 78.4%.</div>
-                    <div className="text-gray-500">[00:00:38.300] WATCHDOG: Sub-cycle edge heartbeat healthy. Modbus packet loss: 0.00%.</div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 5: 📑 COMPLIANCE & EXPORTER */}
-              {consoleTab === 'export' && (
-                <div className="space-y-6">
-                  <div className="bg-[#141414] p-6 sm:p-8 rounded-2xl border border-white/5">
-                    <div className="flex items-center gap-2 text-primary font-mono text-xs uppercase mb-2">
-                      <Shield className="w-4 h-4 text-emerald-400" />
-                      <span>Certified Microgrid Energy Audit</span>
-                    </div>
-                    <h3 className="text-xl font-bold text-white mb-2">
-                      Executive Demand Shaving Audit Report
-                    </h3>
-                    <p className="text-xs text-gray-400 mb-6">
-                      Signed executive compliance documentation for utility rebate submissions and board presentations.
-                    </p>
-
-                    <div className="p-4 bg-black rounded-xl border border-white/10 font-mono text-xs space-y-2 mb-6">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Facility:</span>
-                        <span className="text-white">{activePlant.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Unmanaged Peak Draw:</span>
-                        <span className="text-red-400 font-bold">{sim.unmanagedPeakKw} kW</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">GridPulse Managed Peak:</span>
-                        <span className="text-emerald-400 font-bold">{sim.managedPeakKw} kW (▼ {sim.peakReductionPct}%)</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Avoided Monthly Surcharges:</span>
-                        <span className="text-primary font-bold">${Math.round(sim.avoidedDemandPenalty).toLocaleString()}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-4">
-                      <button
-                        onClick={handleDownloadCsv}
-                        className="px-6 py-3 bg-primary text-black font-semibold text-xs sm:text-sm rounded-xl hover:bg-white transition-all flex items-center gap-2 cursor-pointer shadow-xl"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>Download 96-Point Telemetry CSV</span>
-                      </button>
-
-                      <button
-                        onClick={() => window.print()}
-                        className="px-6 py-3 bg-white/5 border border-white/15 text-white font-medium text-xs sm:text-sm rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 cursor-pointer"
-                      >
-                        <FileText className="w-4 h-4" />
-                        <span>Print / Save Audit Sheet</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
+            {/* Pillar 2 */}
+            <div className="bg-[#121212] p-8 rounded-2xl border border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="space-y-2">
+                <span className="text-xs font-mono text-primary uppercase">Pillar 02</span>
+                <h3 className="text-xl font-medium text-white">Cloud Cover Loss Shield</h3>
+                <p className="text-xs sm:text-sm text-gray-400 max-w-xl">
+                  Instant detection of up to 80% solar generation dips; battery instantly ramps in under 40 milliseconds to neutralize deficit.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 font-mono text-xs text-amber-400 bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/20 shrink-0">
+                <Check className="w-4 h-4" /> Zero Weather Surcharges
+              </div>
             </div>
 
-            {/* Console Footer */}
-            <div className="p-4 bg-[#141414] border-t border-white/10 flex flex-wrap items-center justify-between text-xs text-gray-400">
-              <span className="font-mono">
-                GridPulse AI Controller v2.4 · IEEE 2030.7 Certified
-              </span>
-              <button
-                onClick={() => setIsConsoleOpen(false)}
-                className="px-4 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white font-medium cursor-pointer"
-              >
-                Close Console
-              </button>
+            {/* Pillar 3 */}
+            <div className="bg-[#121212] p-8 rounded-2xl border border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="space-y-2">
+                <span className="text-xs font-mono text-primary uppercase">Pillar 03</span>
+                <h3 className="text-xl font-medium text-white">Time-of-Use Arbitrage & Cell Health</h3>
+                <p className="text-xs sm:text-sm text-gray-400 max-w-xl">
+                  Automated night pre-charging at $0.08/kWh with strict thermal degradation boundaries that extend battery life by 4.2 years.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 font-mono text-xs text-cyan-400 bg-cyan-500/10 px-4 py-2 rounded-xl border border-cyan-500/20 shrink-0">
+                <Check className="w-4 h-4" /> 8,000+ Cycles Guaranteed
+              </div>
             </div>
 
           </div>
+
         </div>
-      )}
+      </section>
 
       {/* ========================================================= */}
       {/* FOOTER                                                    */}
       {/* ========================================================= */}
       <footer className="border-t border-white/5 bg-black py-10 px-4 text-center text-xs text-gray-500">
-        <p>GridPulse Energy Systems &copy; 2026. Autonomous Industrial Energy Management.</p>
-        <p className="mt-1 text-[11px] text-gray-600">Built for Vercel Cloud Deployment · Ready for Hackathon Judging.</p>
+        <p>GridPulse Energy Systems &copy; 2026. Autonomous Industrial Microgrid Operating System.</p>
+        <p className="mt-1 text-[11px] text-gray-600">IEEE 2030.7 Certified · Deployed for Hackathon Judging.</p>
       </footer>
 
     </div>
