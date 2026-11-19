@@ -11,24 +11,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-black text-[#E1E0CC] overflow-x-hidden">
+  <body class="bg-[#F4F0E6] text-[#182C20] overflow-x-hidden">
     <div id="root"></div>
 
     <!-- Vite / Vercel Entry Point -->
     <script type="module" src="/src/main.tsx"></script>
-
-    <!-- Seamless Fallback for Raw Local Static Server (Python http.server) -->
-    <script>
-      (function() {
-        if (!window.__VITE__ && !window.__vite_plugin_react_preamble_installed__) {
-          setTimeout(function() {
-            var root = document.getElementById('root');
-            if (!root || root.children.length === 0) {
-              window.location.replace('/demo.html');
-            }
-          }, 350);
-        }
-      })();
-    </script>
   </body>
 </html>
