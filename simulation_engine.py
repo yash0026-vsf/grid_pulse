@@ -2,7 +2,7 @@
 GridPulse - Microgrid Physics & Industrial Digital Twin Engine
 Models industrial factory loads (automotive stamping plant), rooftop solar PV dynamics,
 battery energy storage system (BESS) electrochemistry, and utility tariff structures.
-"""
+"""   
 
 import numpy as np
 import pandas as pd
