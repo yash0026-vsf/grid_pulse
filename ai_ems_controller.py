@@ -4,6 +4,7 @@ Implements:
 1. Day-Ahead Minimax Linear Programming (LP) Schedule Optimizer (via scipy.optimize.linprog)
 2. Sub-40ms Instantaneous Edge Dispatch & Cloud Cover Shield
 3. Comprehensive Comparative Analytics: Unmanaged Factory vs. GridPulse AI Microgrid
+
 """
 
 import numpy as np
